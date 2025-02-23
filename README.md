@@ -10,7 +10,9 @@ This is the official repository of "Learning 3D Garment Animation from Trajector
 **Feel free to ask questions. I am currently working on some other stuff but will try my best to reply. Please don't hesitate to star!** 
 
 ## News
-- 23 Feb, 2025: All code released, including EUNet training/inference, MeshGraphNet constrained by EUNet training/inference. Pretrained models of EUNet and MeshGraphNet are also released.
+- 23 Feb, 2025: code, pretrained model, and dataset.
+    - All code released, including EUNet training/inference, MeshGraphNet constrained by EUNet training/inference. Pretrained models of EUNet and MeshGraphNet are also released.
+    - Release the dataset (a piece of cloth) to train EUNet. Please download [here](https://entuedu-my.sharepoint.com/:u:/g/personal/yidi001_e_ntu_edu_sg/ERQvC2Y76VJEvziL4qjjN9cBvfJA1v5-IOpxM28dYl0dHQ?e=GzpRRB).
 - 13 Dec, 2024: EUNet core codes released.
 - 24 Nov, 2024: Codes released.
 
@@ -23,12 +25,24 @@ This is the official repository of "Learning 3D Garment Animation from Trajector
 ## Video Demos
 ![](imgs/demo.gif)
 
-## Dataset (Coming Soon)
+## Dataset
 While the dataset is not one of the main contribution,
-we will release part of the data including a piece of cloth.
+we still release part of the data including a piece of cloth.
+Please download [here](https://entuedu-my.sharepoint.com/:u:/g/personal/yidi001_e_ntu_edu_sg/ERQvC2Y76VJEvziL4qjjN9cBvfJA1v5-IOpxM28dYl0dHQ?e=GzpRRB) and extract to ```data/meta_cloth```.
+```
+|-- data
+    └── meta_cloth
+        |-- mesh_484 (trajectories)
+        |-- mesh
+        |   |-- mesh_484.obj
+        |   └── mesh_484.json
+        |-- entry_train_meta.txt
+        |-- entry_test_meta.txt
+        └── train_val_test.json
+```
 
 ## Code
-We train our model with 1 V100.
+We train our model with one V100.
 
 ### Installation
 ```
