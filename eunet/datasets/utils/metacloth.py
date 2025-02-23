@@ -1,15 +1,10 @@
-from collections import defaultdict
 from itertools import chain
 import os
-from mmcv import Config
 import numpy as np
 from pickle import UnpicklingError
-from eunet.datasets.smpl.smpl_np import NUM_SMPL_JOINTS
 from eunet.datasets.utils import readJSON, readPKL, readOBJ, writePKL
-from eunet.datasets.smpl import SMPLModel
 from eunet.datasets.utils.mesh import floyd_map
 
-import torch
 from .phys import get_face_connectivity_combined
 
 
@@ -29,6 +24,49 @@ ATTR_RANGE = dict(
     tension_damping=(0, 30),
     bending_damping=(0, 30),
 )
+
+DEFAULT_CONFIG_SET = [
+    dict( # Silk
+        tension_stiffness=5.,
+        compression_stiffness=5.,
+        shear_stiffness=5.,
+        bending_stiffness=0.5,
+        mass=0.15,
+        tension_damping=0.0,
+        compression_damping=0.0,
+        shear_damping=0.0,
+        bending_damping=0.0,),
+    dict( # Leather
+        tension_stiffness=80.,
+        compression_stiffness=80.,
+        shear_stiffness=80.,
+        bending_stiffness=150.,
+        mass=0.4,
+        tension_damping=25.0,
+        compression_damping=25.0,
+        shear_damping=25.0,
+        bending_damping=0.0,),
+    dict( # Denim
+        tension_stiffness=40.,
+        compression_stiffness=40.,
+        shear_stiffness=40.,
+        bending_stiffness=10.,
+        mass=1.0,
+        tension_damping=25.0,
+        compression_damping=25.0,
+        shear_damping=25.0,
+        bending_damping=0.0,),
+    dict( # Cotton
+        tension_stiffness=15.,
+        compression_stiffness=15.,
+        shear_stiffness=15.,
+        bending_stiffness=0.5,
+        mass=0.3,
+        tension_damping=5.0,
+        compression_damping=5.0,
+        shear_damping=5.0,
+        bending_damping=0.0,),
+]
 
 class MetaClothReader:
     def __init__(self, env_cfg, phase='train'):
@@ -68,17 +106,6 @@ class MetaClothReader:
         pin_idx = np.array(self.template_meta['pin_verts'])
         return pin_idx
 	
-    """ Garment data """
-    """
-	Reads garment vertices location for the specified sample, garment and frame
-	Inputs:
-	- sample: name of the sample
-	- garment: type of garment (e.g.: 'Tshirt', 'Jumpsuit', ...)
-	- frame: frame number
-	- absolute: True for absolute vertex locations, False for locations relative to SMPL root joint	
-	Outputs:
-	- V: 3D vertex locations for the specified sample, garment and frame
-	"""
     def read_garment_vertices(self, sample, garment, frame=None):
 		# Read garment vertices (relative to root joint)
         garment_path = os.path.join(self.data_dir, sample, garment + '.pkl')
@@ -100,14 +127,6 @@ class MetaClothReader:
         gravity = np.array(g) / ((self.cfg.fps*self.cfg.dt)**2)
         return gravity
 
-    """
-	Reads garment faces for the specified sample and garment
-	Inputs:
-	- sample: name of the sample
-	- garment: type of garment (e.g.: 'Tshirt', 'Jumpsuit', ...)
-	Outputs:
-	- F: mesh faces	
-	"""
     def read_garment_topology(self, sample, garment, info=None):
 		# Read OBJ file
         template_path = os.path.join(self.cfg.garment_dir, self.cfg.mesh_name)
@@ -148,19 +167,6 @@ class MetaClothReader:
         V, F, Vt, Ft = readOBJ(obj_path)
         return V, F
     
-    """ Garment data """
-    """
-	Reads garment vertices location for the specified sample, garment and frame
-    and the faces
-	Inputs:
-	- sample: name of the sample
-	- garment: type of garment (e.g.: 'Tshirt', 'Jumpsuit', ...)
-	- frame: frame number
-	- absolute: True for absolute vertex locations, False for locations relative to SMPL root joint	
-	Outputs:
-	- V: 3D vertex locations for the specified sample, garment and frame
-    - F: mesh faces	
-	"""
     def read_garment_vertices_topology(self, sample, garment, frame):
 		# Read garment vertices (relative to root joint)
         garment_path = os.path.join(self.data_dir, sample, garment + '.pkl')

@@ -6,32 +6,17 @@ from .utils import weight_reduce_loss
 from eunet.core import multi_apply
 
 
-def inertia_error(pred, mass, prev_state, trans, vert_mask=None, dt=1.0, frame_dim=6, **kwargs):
-    # Inertia
-    x_t1 = pred[:, :3]
-    x_t0 = prev_state[:, :3]
-    x_tn1 = prev_state[:, frame_dim:frame_dim+3]
-    assert prev_state.shape[-1] == frame_dim*2
-    v_t0 = (x_t0 - x_tn1)/dt
-    if vert_mask is not None:
-        v_t0 = v_t0 * vert_mask
-    x_arrow = x_t0 + dt*v_t0
-    inertia_loss = 0.5 * mass * torch.sum((x_t1-x_arrow)**2, dim=-1, keepdim=True) / (dt**2)
+def potential_prior_error(potential_prior, vert_mask=None, **kwargs):
+    return potential_prior
 
-    assert trans.shape[-1] == 9*2
-    trans_a = trans[:, frame_dim:frame_dim+3]
-    inertia_loss += (mass * x_t1 * trans_a).sum(dim=-1, keepdim=True)
-
-    return inertia_loss
-
-def inertia_loss(
-        pred, prev_state, mass, trans, vert_mask=None, dt=1.0, frame_dim=6,
+def potential_prior_loss(
+        pred, label, potential_prior, vert_mask=None,
         weight=None, reduction='mean', avg_factor=None, eps=1e-7, **kwargs):
-    loss = inertia_error(pred, mass, prev_state, trans, vert_mask, dt, frame_dim, **kwargs)
+    loss = potential_prior_error(potential_prior, vert_mask=vert_mask, **kwargs)
 
     if weight is not None:
         weight = weight.float()
-    if vert_mask is not None:
+    if vert_mask is not None and vert_mask.shape == potential_prior.shape:
         avg_factor = torch.sum(vert_mask) + eps if reduction == 'mean' else None
     loss = weight_reduce_loss(
         loss, weight=weight, reduction=reduction, avg_factor=avg_factor)
@@ -41,26 +26,27 @@ def inertia_loss(
 
 
 @LOSSES.register_module()
-class InertiaLoss(nn.Module):
+class PotentialPriorLoss(nn.Module):
     def __init__(self,
                  reduction='mean',
                  loss_weight=1.0,
-                 loss_name='loss_inertia',):
-        super(InertiaLoss, self).__init__()
+                 loss_name='loss_potential_prior'):
+        super(PotentialPriorLoss, self).__init__()
         self.reduction = reduction
         self.loss_weight = loss_weight
 
-        self.criterion = inertia_loss
+        self.criterion = potential_prior_loss
         self._loss_name = loss_name
-
+    
     def forward(self,
                 cls_score,
                 label,
-                mass, state, trans, dt, vert_mask=None,
-                frame_dim=6,
+                potential_prior,
+                vert_mask=None,
                 weight=None,
                 avg_factor=None,
                 reduction_override=None,
+                num_iter=None,
                 **kwargs):
         assert reduction_override in (None, 'none', 'mean', 'sum')
         reduction = (
@@ -68,10 +54,8 @@ class InertiaLoss(nn.Module):
         bs = len(cls_score)
         loss = multi_apply(
             self.criterion,
-            cls_score, state, mass, trans,
+            cls_score, label, potential_prior,
             vert_mask if vert_mask is not None else [None]*bs,
-            dt=dt,
-            frame_dim=frame_dim,
             weight=weight, reduction=reduction, avg_factor=avg_factor, **kwargs)[0]
         loss = torch.stack(loss).mean()
         loss *= self.loss_weight

@@ -10,8 +10,9 @@ This is the official repository of "Learning 3D Garment Animation from Trajector
 **Feel free to ask questions. I am currently working on some other stuff but will try my best to reply. Please don't hesitate to star!** 
 
 ## News
-- 13 Dec, 2024: EUNet core codes released
-- 24 Nov, 2024: Codes released
+- 23 Feb, 2025: All code released, including EUNet training/inference, MeshGraphNet constrained by EUNet training/inference. Pretrained models of EUNet and MeshGraphNet are also released.
+- 13 Dec, 2024: EUNet core codes released.
+- 24 Nov, 2024: Codes released.
 
 ## Table of Content
 1. [Video Demos](#video-demos)
@@ -27,7 +28,6 @@ While the dataset is not one of the main contribution,
 we will release part of the data including a piece of cloth.
 
 ## Code
-<!-- Codes are tested on Ubuntu 18 and cuda 11.3. -->
 We train our model with 1 V100.
 
 ### Installation
@@ -59,9 +59,70 @@ python tools/train.py configs/potential_energy/base.py --work_dir PATH/TO/DIR
 ```
 
 ### Inference (EUNet)
+Download the pretrained model [here](https://entuedu-my.sharepoint.com/:u:/g/personal/yidi001_e_ntu_edu_sg/EV6f95S023JBmOHlZPGzvU8B0bN-ujifCWi6xmQfc7A6bg?e=9FKAkV) and put to ```work_dirs/eunet/material/latest.pth```.
+
 ```
-python tools/test.py configs/potential_energy/base.py PATH/TO/CHECKPOINT
+python tools/test.py configs/potential_energy/base.py work_dirs/eunet/material/latest.pth
 ```
+
+### Training Garment Models with EUNet
+1. We follow [HOOD](https://github.com/dolorousrtur/hood) to train the neural simulator constrained by our EUNet. Please follow [HOOD](https://github.com/dolorousrtur/hood) to prepare the data first, and put to ```data/hood_data```.
+2. Make sure the [VTO dataset](https://github.com/isantesteban/vto-dataset) is at ```data/hood_data/vto_dataset```. The data structure is as follows:
+```
+|-- data
+    └── hood_data
+        |-- aux_data
+        |   |-- datasplits
+        |   |-- garment_meshes
+        |   |-- smpl
+        |   |-- garments_dict.pkl
+        |   └── smpl_aux.pkl
+        └── vto_dataset
+```
+3. Execute the command:
+```
+python tools/train.py configs/dynamic_simulator/base.py --work_dir PATH/TO/WORK/DIR
+```
+
+### Inference Garment Models with EUNet
+1. If using pretrained model, please download from [here](https://entuedu-my.sharepoint.com/:u:/g/personal/yidi001_e_ntu_edu_sg/EV6f95S023JBmOHlZPGzvU8B0bN-ujifCWi6xmQfc7A6bg?e=9FKAkV) and put to ```work_dirs/eunet/dynamics/latest.pth```.
+2. Execute the following commands, which will save garment meshes into ```PATH/TO/SAVE/DIR``` in the form of ".pkl".
+```
+python tools/test.py configs/dynamic_simulator/test.py work_dirs/eunet/dynamics/latest.pth --show-dir PATH/TO/SAVE/DIR --show-options rollout=SEQ_NUM  # SEQ_NUM is the number of target sequence, e.g. rollout=4430
+```
+
+### Inference on Cloth3D
+1. We sample sequences from the training set of Cloth3D. Please download the training set [here](https://chalearnlap.cvc.uab.es/dataset/38/data/72/description/) and extract to ```data/cloth3d```.
+2. Download the SMPL model from [here], rename them to "model_f.pkl" and "model_m.pkl", and move to ```data/smpl```. The final structure should be as follows:
+```
+|-- data
+    └── cloth3d
+        └── entry_test.txt (provided)
+        └── train
+            └── 00000 (sequences)
+        └── smpl
+            |-- model_f.pkl
+            |-- model_m.pkl
+            └── segm_per_v_overlap.pkl (provided)
+```
+3. To evaluate the pretrained model, please execute the following command, which will output the errors for each/all sequences.
+```
+python tools/test.py configs/dynamic_simulator/test_cloth3d.py work_dirs/eunet/dynamics/latest.pth
+```
+
+| $l2$ (mm)| Tshirt  | Top  | Jumpsuit  | Dress  | Overall | Collision (%) |
+| -------- | ------- | ------- | ------- | ------- | ------- | ------- |
+| MGN+EUNet| $51.68\pm19.86$| $37.65\pm12.64$|$62.13\pm22.02$| $103.28\pm67.49$| $69.26\pm47.31$| $0.47\pm0.60$|
+
+
+### Visualization
+To visualize the meshes, please execute:
+```
+python tools/visualization.py --work_dir PATH/TO/SAVE/DIR --seq SEQ_NUM --frame FRAME_NUM
+```
+An example usage is ```python tools/visualization.py --work_dir PATH/TO/SAVE/DIR --seq 4430 --frame 1```.
+
+You can hide/visualize corresponding meshes by clicking the legend on the top-right of the web page.
 
 ## Citations
 ```

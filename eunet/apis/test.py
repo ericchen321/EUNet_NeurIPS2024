@@ -22,8 +22,6 @@ def single_gpu_rollout(model, data_loader, show=False, out_dir=None, **show_kwar
     rollout_pointer = None
     prev_pred = None
     history_inputs = None
-    history_sample_noise = None
-    cur_rollout_acc = []
     for i, data in enumerate(data_loader):
         states_dim = data['gt_label'][0]['vertices'].data[0][0].shape[1]
         assert len(data['inputs']['dynamic']) == 1
@@ -32,29 +30,15 @@ def single_gpu_rollout(model, data_loader, show=False, out_dir=None, **show_kwar
         if rollout_pointer == seq_num:
             human_states = np.array(to_numpy_detach(data['inputs']['dynamic'][0]['h_state'].data[0][0]))
             assert history_inputs is not None
-            current_state_inputs = None
-            current_noise_sample = None
-            if not getattr(data_loader.dataset, 'supervised_rollout', False):
-                current_state_inputs = history_inputs.astype(np.float32)
-                current_noise_sample = history_sample_noise.astype(np.float32) if history_sample_noise is not None else None
-
-            data = dataset.prepare_rollout(current_garment=current_state_inputs, current_human=human_states, batch_data=data, current_noise_sample=current_noise_sample)
+            current_state_inputs = history_inputs.astype(np.float32)
+            data = dataset.prepare_rollout(current_garment=current_state_inputs, current_human=human_states, batch_data=data)
         else:
-            if len(cur_rollout_acc) > 0:
-                c_mean = np.mean(cur_rollout_acc)
-                c_std = np.std(cur_rollout_acc)
-                print("*"*50+f"Current rollout {seq_num}: {c_mean}+{c_std}")
-                cur_rollout_acc = []
-
+            print(f"Processing sequence: {seq_num}")
             # Begin a new rollout
             rollout_pointer = seq_num
             cuda_history_inputs = data['inputs']['dynamic'][0].get('state', None)
             assert cuda_history_inputs is not None
             history_inputs = np.array(to_numpy_detach(cuda_history_inputs.data[0][0]))
-            cuda_noise_sample = data['inputs']['dynamic'][0].get('noise_sample', None)
-            if cuda_noise_sample is not None:
-                history_sample_noise = np.array(to_numpy_detach(cuda_noise_sample.data[0][0]))
-            pass
 
         with torch.no_grad():
             result = model(return_loss=False, **data)
@@ -69,17 +53,12 @@ def single_gpu_rollout(model, data_loader, show=False, out_dir=None, **show_kwar
             'indices_type': deepcopy(to_numpy_detach(data['inputs']['static']['indices_type'].data[0][0]))
             })
 
-        cur_rollout_acc.append(result['acc'].get('acc_l2_dynamic.jacket', 0.0))
-
         prev_pred = result['pred']
         assert len(prev_pred) == 1
         prev_pred = np.array(prev_pred[0])
         prev_pred = prev_pred[:, :states_dim]
         assert history_inputs is not None
         history_inputs = np.concatenate([prev_pred, history_inputs[:, :-states_dim]], axis=-1)
-        if 'eps' in result.keys():
-            noise_sample = np.array(result['eps'][0])
-            history_sample_noise = np.concatenate([noise_sample, np.zeros_like(noise_sample), history_sample_noise[:, :-states_dim]], axis=-1)
 
         if show or out_dir:
             pred = result['pred']
@@ -103,12 +82,6 @@ def single_gpu_rollout(model, data_loader, show=False, out_dir=None, **show_kwar
         batch_size = len(x) if isinstance(x, list) else x.size(0)
         for _ in range(batch_size):
             prog_bar.update()
-
-    if len(cur_rollout_acc) > 0:
-        c_mean = np.mean(cur_rollout_acc)
-        c_std = np.std(cur_rollout_acc)
-        print("*"*50+f"Current rollout {seq_num}: {c_mean}+{c_std}")
-        cur_rollout_acc = []
     
     return results
 

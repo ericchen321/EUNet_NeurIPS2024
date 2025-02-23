@@ -6,9 +6,6 @@ env_cfg = dict(
 		split_meta = 'data/meta_cloth/train_val_test.json',
         mesh_name='mesh_484.obj',
         meta_name='meta_484.json',
-		train_split = 0.8,
-		val_split = 0.1,
-		test_split = 0.1,
 		dt=1.0/30,
 		fps=30,
 		),
@@ -18,17 +15,16 @@ env_cfg = dict(
 	history=0,
 	# Noise
 	noise_std=0.0,
-	# Model behavior related
 	step=3, # Autoregressive step
 	dynamic=True,
-    rollout=False, # Rollout pred
+    rollout=False,
 	max_frame=30,
 	start_frame=0,
 )
 
 data = dict(
-    samples_per_gpu=16,
-    workers_per_gpu=2,
+    samples_per_gpu=8,
+    workers_per_gpu=4,
 	train=dict(
 		phase='train',
 		env_cfg=env_cfg,),

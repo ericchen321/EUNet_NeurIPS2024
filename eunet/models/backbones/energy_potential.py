@@ -1,18 +1,12 @@
-import numpy as np
 import torch
 import torch.nn as nn
 from mmcv.cnn import build_norm_layer
 from mmcv.runner import BaseModule, ModuleList
 
-from .. import builder
 from ..builder import BACKBONES
 from .base_backbone import BaseBackbone
 from eunet.models.utils import (FFN, Normalizer)
-from eunet.datasets.utils import normalize
-import dgl
-import dgl.function as fn
 
-from eunet.models.utils.dgl_graph import VERT_ID
 from eunet.utils import face_normals_batched, vertex_normal_batched_simple
 from eunet.datasets.utils.hood_common import gather
 
@@ -131,8 +125,8 @@ class EnergyPotential(BaseBackbone):
         
         # l2
         edge_info_dim = 1
-        ## cos, sin, cos, sin, cos, sin
-        extra_theta_dim = 6
+        ## cos, sin, cos, sin
+        extra_theta_dim = 4
         edge_info_dim += extra_theta_dim
         self.edge_pos_encoder = FFN(
             [edge_info_dim+attr_dim] + [embed_dims for i in range(self.num_fcs)],
@@ -219,18 +213,7 @@ class EnergyPotential(BaseBackbone):
         x_dir[0,0] = 1.0
         cos_plane, sin_plane = self._cos_sin_l1theta_withdir(local_src_normal, rotated_local_dst_normal, x_dir)
 
-        z_dir = torch.zeros((1, 3)).to(local_dst_normal)
-        z_dir[0,2] = 1.0
-        cos_z, sin_z = self._cos_sin_l1theta_withdir(local_src_normal, z_dir, x_dir)
-
-
-        # x_local_yz = local_dst_normal[:, 1:3]
-        # x_local_yz_norm = torch.linalg.norm(x_local_yz, dim=-1, keepdim=True)
-        # x_local_yz, x_local_yz_norm = self._check_zero_coord(x_local_yz, x_local_yz_norm)
-        # x_local_cossin = x_local_yz / x_local_yz_norm
-        # cossin_theta_plane = x_local_cossin # This is the one between faces, using in bending
-
-        return cos_alongedge, sin_alongedge, cos_plane, sin_plane, cos_z, sin_z
+        return cos_alongedge, sin_alongedge, cos_plane, sin_plane
     
     def _get_edge_length(self, state, f_connectivity_edges):
         v = gather(state, f_connectivity_edges, 0, 1, 1)
@@ -267,18 +250,16 @@ class EnergyPotential(BaseBackbone):
         # Bending info
         template_v_normal = vertex_normal_batched_simple(templates.unsqueeze(0), faces.unsqueeze(0))[0]
         vertex_normal = vertex_normal_batched_simple(states.unsqueeze(0), faces.unsqueeze(0))[0]
-        tem_cos_ae, tem_sin_ae, tem_cos_plane, tem_sin_plane, tem_cos_z, tem_sin_z = self._get_rel_rotation_edge_vn_theta(template_v_normal, templates, f_connectivity_edges)
-        cur_cos_ae, cur_sin_ae, cur_cos_plane, cur_sin_plane, cur_cos_z, cur_sin_z = self._get_rel_rotation_edge_vn_theta(vertex_normal, states, f_connectivity_edges)
+        tem_cos_ae, tem_sin_ae, tem_cos_plane, tem_sin_plane = self._get_rel_rotation_edge_vn_theta(template_v_normal, templates, f_connectivity_edges)
+        cur_cos_ae, cur_sin_ae, cur_cos_plane, cur_sin_plane = self._get_rel_rotation_edge_vn_theta(vertex_normal, states, f_connectivity_edges)
         # cos(a-b) = cosa cosb + sina sinb
         delta_cos_ae = cur_cos_ae*tem_cos_ae + cur_sin_ae*tem_sin_ae
         delta_cos_plane = cur_cos_plane*tem_cos_plane + cur_sin_plane*tem_sin_plane
-        delta_cos_z = cur_cos_z*tem_cos_z + cur_sin_z*tem_sin_z
         # sin(a-b) = sina cosb - cosa sinb
         delta_sin_ae = cur_sin_ae*tem_cos_ae - cur_cos_ae*tem_sin_ae
         delta_sin_plane = cur_sin_plane*tem_cos_plane - cur_cos_plane*tem_sin_plane
-        delta_sin_z = cur_sin_z*tem_cos_z - cur_cos_z*tem_sin_z
         # No need further normalize
-        normal_in_feature = torch.cat([delta_cos_ae, delta_sin_ae, delta_cos_plane, delta_sin_plane, delta_cos_z, delta_sin_z], dim=-1)
+        normal_in_feature = torch.cat([delta_cos_ae, delta_sin_ae, delta_cos_plane, delta_sin_plane], dim=-1)
 
         # Length info
         template_l2 = self._get_edge_length(templates, f_connectivity_edges)

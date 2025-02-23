@@ -6,21 +6,10 @@ import numpy as np
 from torch.utils.data import Dataset
 
 from mmcv.parallel import collate
-from .utils import GARMENT_TYPE
+from .utils.cloth3d import GARMENT_TYPE
 
 
 class BaseDataset(Dataset, metaclass=ABCMeta):
-    """Base dataset.
-
-    Args:
-        data_prefix (str): the prefix of data path
-        pipeline (list): a list of dict, where each element represents
-            a operation defined in `mmsim.datasets.pipelines`
-        ann_file (str | None): the annotation file. When ann_file is str,
-            the subclass is expected to read from the ann_file. When ann_file
-            is None, the subclass is expected to read according to data_prefix
-        test_mode (bool): in train mode or test mode
-    """
 
     def __init__(self, env_cfg, phase, **kwargs):
         self.env_cfg = env_cfg
@@ -96,19 +85,6 @@ class BaseDataset(Dataset, metaclass=ABCMeta):
             unique_seq.add(seq)
         
         return data_list, rollout_list
-    
-    def preprocess(self, sheet_path, shuffle=True):
-        # sheet format: seq\tnum
-        sample_seq = self.data_reader.seq_list
-
-        data_list = []
-        for seq in sample_seq:
-            sample_info = self.data_reader.read_info(seq)
-            num_frames = sample_info['simulate']['human']['seq_end'] - sample_info['simulate']['human']['seq_start']
-            data_list.append(f"{seq}\t0\t{num_frames}")
-        with open(sheet_path, 'w') as f:
-            f.write("\n".join(data_list))
-        return True
 
     def __len__(self):
         length = len(self.data_list)
@@ -146,12 +122,9 @@ class BaseDataset(Dataset, metaclass=ABCMeta):
                  results,
                  metric_key,
                  extra_key=None,
-                 merged=False,
                  logger=None,
                  **kwargs):
         collate_results = dict()
-        if isinstance(ignore_key, str):
-            ignore_key = [ignore_key]
 
         garment_wise_results = dict()
         rollout_wise_results = dict()
@@ -166,13 +139,13 @@ class BaseDataset(Dataset, metaclass=ABCMeta):
                 g_type = GARMENT_TYPE[g_type_idx]
                 indices_name.append(g_type)
             if extra_key is not None:
-                indices_name.append(extra_key) # This is for collision default keys
+                indices_name.append(extra_key)
             rollout_wise_results[rollout_idx].append(
                 dict(acc=rst['acc'], indices=rst['indices'], indices_name=indices_name))
             for g_name, g_rst in rst['acc'].items():
                 if not g_name.replace(f'{metric_key}.', '') in indices_name:
                     continue
-                if g_rst < 0:
+                if g_rst < 0: # Invalid ones
                     continue
                 if g_name not in garment_wise_results.keys():
                     garment_wise_results[g_name] = defaultdict(list)
@@ -203,8 +176,6 @@ class BaseDataset(Dataset, metaclass=ABCMeta):
                 extra_key_eval /= indices[-1]
                 rollout_rst.append(frame_eval)
                 extra_rst.append(extra_key_eval)
-            # rollout_eval = np.mean(rollout_rst)
-            # extra_rollout_eval = np.mean(extra_rst)
             eval_rollout[rollout_idx] = rollout_rst
             extra_eval_rollout[rollout_idx] = extra_rst
         collate_results[f'{metric_key}_whole'] = dict(
@@ -232,7 +203,6 @@ class BaseDataset(Dataset, metaclass=ABCMeta):
             # Save into logger
             for rollout_idx, rollout_rst in extra_eval_rollout.items():
                 logger.info(f"Rollout {rollout_idx} {metric_key}: mean: {np.mean(rollout_rst)}; std: {np.std(rollout_rst)}")
-
             
         for g_name, rollout_cont in garment_wise_results.items():
             rollout_eval = {
@@ -263,10 +233,10 @@ class BaseDataset(Dataset, metaclass=ABCMeta):
             if not 'collision' in m_key:
                 collate_results.update(
                     self.evaluate_rollout_each_metric(results=results, metric_key=m_key, 
-                    merged=self.env_cfg.get('merged', False), logger=logger, **metric_options, **kwargs))
+                    logger=logger, **metric_options, **kwargs))
             else:
                 collate_results.update(
-                    self.evaluate_rollout_each_metric(results=results, metric_key=m_key.replace('l2', 'collision'), extra_key='garment2human', merged=self.env_cfg.get('merged', False), logger=logger, **metric_options, **kwargs))
+                    self.evaluate_rollout_each_metric(results=results, metric_key=m_key.replace('l2', 'collision'), extra_key='garment2human', logger=logger, **metric_options, **kwargs))
 
         return collate_results
 
@@ -276,19 +246,6 @@ class BaseDataset(Dataset, metaclass=ABCMeta):
                  metric_options=None,
                  logger=None,
                  **kwargs):
-        """Evaluate the dataset.
-
-        Args:
-            results (list): Testing results of the dataset.
-            metric (str | list[str]): Metrics to be evaluated.
-                Default value is `accuracy`.
-            metric_options (dict): Options for calculating metrics. Allowed
-                keys are 'topk', 'thrs' and 'average_mode'.
-            logger (logging.Logger | None | str): Logger used for printing
-                related information during evaluation. Default: None.
-        Returns:
-            dict: evaluation results
-        """
         if self.env_cfg.get("rollout", False):
             return self.evaluate_rollout(results=results, metric=metric, metric_options=metric_options, logger=logger, **kwargs)
         else:

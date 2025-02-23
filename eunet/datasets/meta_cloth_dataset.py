@@ -2,11 +2,10 @@ import numpy as np
 import os
 import tqdm
 import mmcv
-from collections import defaultdict
 
 from .builder import DATASETS
 from eunet.datasets.utils import MetaClothReader
-from eunet.datasets.utils import writeH5, readH5, np_tensor
+from eunet.datasets.utils import diff_pos, writeH5, readH5, np_tensor
 from eunet.datasets.utils.mesh import get_unneighbor_edges
 from .base_dataset import BaseDataset
 from .utils.metacloth import ATTR_RANGE
@@ -35,7 +34,7 @@ class MetaClothDynamicDataset(BaseDataset):
                     data_list.append(i)
         self.data_list = data_list
 
-    def preprocess(self, sheet_path, shuffle=True):
+    def preprocess(self, sheet_path, **kwargs):
         # sheet format: seq\tnum
         sample_seq = self.data_reader.seq_list
 
@@ -44,8 +43,6 @@ class MetaClothDynamicDataset(BaseDataset):
             sample_info = self.data_reader.read_info(seq)
             num_frames = 120 # Specifically for newly dataset
             data_list.append(f"{seq}\t0\t{num_frames}")
-        # if shuffle:
-        #     np.random.shuffle(data_list)
         with open(sheet_path, 'w') as f:
             f.write("\n".join(data_list))
         return True
@@ -62,7 +59,6 @@ class MetaClothDynamicDataset(BaseDataset):
     def process_raw_dynamic(self, g_types, names, offset, pos, gravity, **kwargs):
         # Noise Augmentation
         add_noise = self.generate_noise(pos.shape[0], pos.shape[1], self.noise_range)
-        # To concat with vel/acc
         noise_list = [add_noise]
 
         # Concat needed info
@@ -107,22 +103,6 @@ class MetaClothDynamicDataset(BaseDataset):
         assert mesh_templates.shape[0] == mesh_offset[-1]
         return mesh_name, mesh_offset, mesh_face_offset, mesh_faces, mesh_templates
     
-    def generate_uniform_noise(self, num_verts, num_dim, noise_range):
-        '''
-            Only consider current nosie
-            num_dim: is the position dim
-        '''
-        if noise_range is not None:
-            # noise_idx = idx % len(self.noise_range)
-            # n_std = self.noise_range[noise_idx]
-
-            n_std = np.random.choice(noise_range, 1)
-            assert n_std > 0
-            add_noise = np.random.uniform(self.l_noise_mean, self.l_noise_mean+n_std, size=(num_verts, num_dim))
-        else:
-            add_noise = np.zeros((num_verts, num_dim))
-        return add_noise
-    
     def process_raw_static(self, seq_num, mesh_name, mesh_offset, mesh_face_offset, mesh_faces, mesh_templates, **kwargs):
         # Parse data
         garment_offset = mesh_offset
@@ -157,7 +137,7 @@ class MetaClothDynamicDataset(BaseDataset):
             attr_list.append(attr)
             attr_exist = len(attr_list)-1
             assert len(attr_list) == 1
-        # 1, 5
+
         attr_list = np.stack(attr_list, axis=0)
         garment_mass = np.concatenate(garment_mass, axis=0)
 
@@ -176,7 +156,6 @@ class MetaClothDynamicDataset(BaseDataset):
         face2edge_list = []
         edge_offset = 0
         for g_idx, g_name in enumerate(garment_name):
-            # include the boundary edges: as long as pdding=True
             f_connect, f_connect_edge, face2edge_connectivity = self.data_reader.read_garment_polygon_params(seq_num, g_name, padding=self.env_cfg.get('pad_f_connect', False))
             # Move the offset for further concat
             f_offset = garment_faces_offset[g_idx]
@@ -211,19 +190,13 @@ class MetaClothDynamicDataset(BaseDataset):
         static_data.update(dict(first_neighbor_mask=first_neighbor_mask))
         
         return static_data, mesh_name, mesh_offset, mesh_face_offset, mesh_faces, mesh_templates
-    
-    # def merge_random(self, input_states_list, random_list):
-    #     for i in range(len(input_states_list)):
-    #         random_in = random_list[i]['garment']['state']
-    #         input_states_list[i]['garment']['random_frame'] = random_in
-    #     return input_states_list
 
     def load_candidate_frames(self, seq_num, frame_idx):
         g_types, names, offset = None, None, None
         input_states_list = []
 
         start_frame = frame_idx-self.env_cfg.history
-        # TODO: Check why 1+
+        # extra 1 is to align with other pipeline, in practice only the first 3 frames are used, the last frame (4th) is no use for this
         for i in range(1+self.env_cfg.step+self.env_cfg.history):
             cur_frame = start_frame+i
             ## Behavior of input_states: 1. stack with history
@@ -290,7 +263,6 @@ class MetaClothDynamicDataset(BaseDataset):
         return static_data
     
     def __getitem__(self, idx):
-        # Remember this order: garment, human, attr, invisable, patches
         seq_num, frame_idx = self.data_list[idx]
 
         g_types, names, offset, input_states_list = self.load_candidate_frames(seq_num, frame_idx)
@@ -304,21 +276,12 @@ class MetaClothDynamicDataset(BaseDataset):
         attr = static_data['attr'].data[0]
         eps = 1e-3
         if (attr[0] * ATTR_RANGE['tension'][1] - 5).abs() < eps  and (attr[1] * ATTR_RANGE['bending'][1] - 0.5).abs() < eps:
-            # From different version of blender
-            # const_g_484damp for edgewise
             g_types[0, 0] = 0
-        elif (attr[0] * ATTR_RANGE['tension'][1] - 15).abs() < eps and (attr[1] * ATTR_RANGE['bending'][1] - 25.0).abs() < eps:
-        # elif mass == 3.0:
-            g_types[0, 0] = 1
-            assert False
         elif (attr[0] * ATTR_RANGE['tension'][1] - 80).abs() < eps and (attr[1] * ATTR_RANGE['bending'][1] - 150.0).abs() < eps:
-        # elif mass == 0.4:
             g_types[0, 0] = 1
         elif (attr[0] * ATTR_RANGE['tension'][1] - 40).abs() < eps and (attr[1] * ATTR_RANGE['bending'][1] - 10.0).abs() < eps:
-        # elif mass == 1.0:
             g_types[0, 0] = 2
         elif (attr[0] * ATTR_RANGE['tension'][1] - 15).abs() < eps and (attr[1] * ATTR_RANGE['bending'][1] - 0.5).abs() < eps:
-        # elif mass == 0.3:
             g_types[0, 0] = 3
         else:
             assert False
