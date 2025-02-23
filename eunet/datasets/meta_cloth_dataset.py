@@ -16,11 +16,6 @@ class MetaClothDynamicDataset(BaseDataset):
 
     def __init__(self, env_cfg, phase, **kwargs):
         super(MetaClothDynamicDataset, self).__init__(env_cfg=env_cfg, phase=phase, **kwargs)
-        self.dynamic_data_names = [
-            'g_type',
-            'name',
-            'offset',
-            'position']
 
     def _init_reader(self):
         self.data_reader = MetaClothReader(self.env_cfg.clothenv_base, phase=self.phase)
@@ -48,9 +43,11 @@ class MetaClothDynamicDataset(BaseDataset):
         return True
     
     ## Dynamic data process *********************************************************************************************
-    def load_raw_dynamic(self, data_names, seq_num, frame_idx, **kwargs):
-        h5_path = os.path.join(self.data_reader.generated_dir, seq_num, "rollout", f"{frame_idx}.h5")
-        g_types, names, offset, pos = readH5(data_names, h5_path)
+    def load_raw_dynamic(self, seq_num, frame_idx, **kwargs):
+        pos = self.data_reader.read_garment_vertices(seq_num, 'Plane', frame=frame_idx)
+        offset = np.array([0, pos.shape[0]])
+        names = ['Plane']
+        g_types = self.data_reader.garment_type['Plane'].reshape(1, 1)
         raw_gravity = self.data_reader.read_gravity(seq_num)
         gravity = np.concatenate([np.zeros((1, 3)), raw_gravity.reshape(1, -1)], axis=-1)
 
@@ -156,7 +153,7 @@ class MetaClothDynamicDataset(BaseDataset):
         face2edge_list = []
         edge_offset = 0
         for g_idx, g_name in enumerate(garment_name):
-            f_connect, f_connect_edge, face2edge_connectivity = self.data_reader.read_garment_polygon_params(seq_num, g_name, padding=self.env_cfg.get('pad_f_connect', False))
+            f_connect, f_connect_edge, face2edge_connectivity = self.data_reader.read_garment_polygon_params(seq_num, g_name)
             # Move the offset for further concat
             f_offset = garment_faces_offset[g_idx]
             v_offset = garment_offset[g_idx]
@@ -200,13 +197,13 @@ class MetaClothDynamicDataset(BaseDataset):
         for i in range(1+self.env_cfg.step+self.env_cfg.history):
             cur_frame = start_frame+i
             ## Behavior of input_states: 1. stack with history
-            g_types, names, offset, input_states = self.pack_dynamic(self.dynamic_data_names, seq_num, cur_frame)
+            g_types, names, offset, input_states = self.pack_dynamic(seq_num, cur_frame)
             input_states_list.append(input_states)
         
         return g_types, names, offset, input_states_list
 
-    def pack_dynamic(self, data_names, seq_num, frame_idx, **kwargs):
-        g_types, names, offset, pos, gravity = self.load_raw_dynamic(data_names, seq_num, frame_idx)
+    def pack_dynamic(self, seq_num, frame_idx, **kwargs):
+        g_types, names, offset, pos, gravity = self.load_raw_dynamic(seq_num, frame_idx)
         g_types, names, offset, input_states = self.process_raw_dynamic(g_types, names, offset, pos, gravity, **kwargs)
         return g_types, names, offset, input_states
 

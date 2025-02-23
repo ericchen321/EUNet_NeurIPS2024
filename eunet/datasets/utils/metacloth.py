@@ -176,9 +176,11 @@ class MetaClothReader:
         F, T = self.read_garment_topology(sample, garment)
         return V, F, T
     
-    def read_garment_polygon_params(self, sample, garment, padding=False):
+    def read_garment_polygon_params(self, sample, garment, padding=True):
         padding_suffix = '_npad' if not padding else '_pad'
-        phys_path = os.path.join(self.cfg.generated_dir, sample, f"{garment}_{self.cfg.mesh_name.replace('.obj', '')}_polygon{padding_suffix}.pkl")
+        phys_dir = os.path.join(self.cfg.generated_dir, sample)
+        os.makedirs(phys_dir, exist_ok=True)
+        phys_path = os.path.join(phys_dir, f"{garment}_{self.cfg.mesh_name.replace('.obj', '')}_polygon{padding_suffix}.pkl")
         try:
             data = readPKL(phys_path)
         except (UnpicklingError, FileNotFoundError, EOFError):
