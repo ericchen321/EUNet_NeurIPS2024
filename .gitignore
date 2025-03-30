@@ -127,3 +127,10 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# data
+data/meta_cloth
+data/meta_cloth_generated/
+
+# work dir
+work_dirs
